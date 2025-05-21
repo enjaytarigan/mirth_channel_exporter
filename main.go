@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/xml"
 	"flag"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -18,10 +19,12 @@ import (
 
 /*
 <map>
-  <entry>
-    <string>101af57f-f26c-40d3-86a3-309e74b93512</string>
-    <string>Send-Email-Notification</string>
-  </entry>
+
+	<entry>
+	  <string>101af57f-f26c-40d3-86a3-309e74b93512</string>
+	  <string>Send-Email-Notification</string>
+	</entry>
+
 </map>
 */
 type ChannelIdNameMap struct {
@@ -35,15 +38,17 @@ type ChannelEntry struct {
 
 /*
 <list>
-  <channelStatistics>
-    <serverId>c5e6a736-0e88-46a7-bf32-5b4908c4d859</serverId>
-    <channelId>101af57f-f26c-40d3-86a3-309e74b93512</channelId>
-    <received>0</received>
-    <sent>0</sent>
-    <error>0</error>
-    <filtered>0</filtered>
-    <queued>0</queued>
-  </channelStatistics>
+
+	<channelStatistics>
+	  <serverId>c5e6a736-0e88-46a7-bf32-5b4908c4d859</serverId>
+	  <channelId>101af57f-f26c-40d3-86a3-309e74b93512</channelId>
+	  <received>0</received>
+	  <sent>0</sent>
+	  <error>0</error>
+	  <filtered>0</filtered>
+	  <queued>0</queued>
+	</channelStatistics>
+
 </list>
 */
 type ChannelStatsList struct {
@@ -191,30 +196,31 @@ func (e *Exporter) LoadChannelIdNameMap() (map[string]string, error) {
 func (e *Exporter) HitMirthRestApisAndUpdateMetrics(channelIdNameMap map[string]string, ch chan<- prometheus.Metric) {
 	// Load channel stats
 	req, err := http.NewRequest("GET", e.mirthEndpoint+channelStatsApi, nil)
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// This one line implements the authentication required for the task.
 	req.SetBasicAuth(e.mirthUsername, e.mirthPassword)
+	req.Header.Set("X-Requested-With", "OpenAPI")
+
 	// Make request and show output.
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// fmt.Println(string(body))
 
-	// we initialize our array
+	defer resp.Body.Close()
+
 	var channelStatsList ChannelStatsList
-	// we unmarshal our byteArray which contains our
-	// xmlFiles content into 'users' which we defined above
 	err = xml.Unmarshal(body, &channelStatsList)
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -254,20 +260,20 @@ func (e *Exporter) HitMirthRestApisAndUpdateMetrics(channelIdNameMap map[string]
 func main() {
 	flag.Parse()
 
-  configFile := *configPath
-  if configFile != "" {
-		log.Printf("Loading %s env file.\n", configFile)
-    err := godotenv.Load(configFile)
-	  if err != nil {
-		  log.Printf("Error loading %s env file.\n", configFile)
-	  }
-  } else {
-  	err := godotenv.Load()
-	  if err != nil {
-	  	log.Println("Error loading .env file, assume env variables are set.")
-	  }
-  }
+	configFile := *configPath
 
+	if configFile != "" {
+		log.Printf("Loading %s env file.\n", configFile)
+		err := godotenv.Load(configFile)
+		if err != nil {
+			log.Printf("Error loading %s env file.\n", configFile)
+		}
+	} else {
+		err := godotenv.Load()
+		if err != nil {
+			log.Println("Error loading .env file, assume env variables are set.")
+		}
+	}
 
 	mirthEndpoint := os.Getenv("MIRTH_ENDPOINT")
 	mirthUsername := os.Getenv("MIRTH_USERNAME")
@@ -275,7 +281,7 @@ func main() {
 
 	exporter := NewExporter(mirthEndpoint, mirthUsername, mirthPassword)
 	prometheus.MustRegister(exporter)
-  log.Printf("Using connection endpoint: %s", mirthEndpoint)
+	log.Printf("Using connection endpoint: %s", mirthEndpoint)
 
 	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -287,5 +293,6 @@ func main() {
              </body>
              </html>`))
 	})
+	
 	log.Fatal(http.ListenAndServe(*listenAddress, nil))
 }
