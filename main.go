@@ -6,7 +6,6 @@ import (
 	"encoding/xml"
 	"flag"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -164,16 +163,17 @@ func (e *Exporter) LoadChannelIdNameMap() (map[string]string, error) {
 
 	// This one line implements the authentication required for the task.
 	req.SetBasicAuth(e.mirthUsername, e.mirthPassword)
+	req.Header.Set("X-Requested-With", "OpenAPI")
+
 	// Make request and show output.
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
 	// fmt.Println(string(body))
 
@@ -293,6 +293,6 @@ func main() {
              </body>
              </html>`))
 	})
-	
+
 	log.Fatal(http.ListenAndServe(*listenAddress, nil))
 }
